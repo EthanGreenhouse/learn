@@ -1,3 +1,12 @@
-# learnProgramming
+# 📚 learn
 
-This repository contains a collection of mini projects developed in C++, Python, and MATLAB
+Collection of hardware and software mini projects documenting my learning journey.
+
+## Hardware design:
+- AutoCAD
+- Solidworks
+
+## Software Development
+- C++
+- Python
+- MATLAB
