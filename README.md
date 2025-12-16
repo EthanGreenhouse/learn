@@ -7,4 +7,3 @@ Collection of hardware and software mini projects documenting my learning journe
 - [C++](https://github.com/EthanGreenhouse/learn/tree/main/cpp)
 - [Python](https://github.com/EthanGreenhouse/learn/tree/main/python)
 - [MATLAB](https://github.com/EthanGreenhouse/learn/tree/main/matlab)
-- [Quartus Prime](https://github.com/EthanGreenhouse/learn/tree/main/quartusprime)
