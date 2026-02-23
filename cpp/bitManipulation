@@ -1,8 +1,6 @@
-/*
- * EECE2160 Homework #7 - Bit Manipulation Program
- * Author: Ethan Greenhouse
- * Date: November 5, 2025
- */
+// Bit Manipulation 
+// Ethan Greenhouse
+// 10/5/2025
 
 #include <iostream>
 #include <bitset>
@@ -116,4 +114,5 @@ int main() {
 
     cout << "Done" << endl;
     return 0;
+
 }
