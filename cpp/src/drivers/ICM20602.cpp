@@ -1,0 +1,135 @@
+#include "ICM20602.h"
+#include <Arduino.h>
+#include <Wire.h>
+
+#define ICM20602_ADDR 0x69  // Default I2C address of the ICM-20602
+#define WHO_AM_I_REG 0x75   // Register to check device ID
+#define PWR_MGMT_1   0x6B   // Power management register
+#define ACCEL_CONFIG 0x1C   // Accelerometer configuration register
+#define GYRO_CONFIG  0x1B   // Gyroscope configuration register
+#define ACCEL_XOUT_H 0x3B   // Accelerometer X-axis high byte register
+#define GYRO_XOUT_H  0x43   // Gyroscope X-axis high byte register
+#define CONFIG           0x1A  // Gyro DLPF config
+#define ACCEL_CONFIG2    0x1D  // Accel DLPF config
+#define SMPLRT_DIV        0x19
+
+float accelScaleFactor = 2048.0; // Scale factor for ±16g (LSB per g)
+float gyroScaleFactor = 16.4; // Scale factor for ±2000 dps (LSB per dps)
+
+void writeRegister(uint8_t address, uint8_t reg, uint8_t data) {
+    Wire.beginTransmission(address);
+    Wire.write(reg);
+    Wire.write(data);
+    Wire.endTransmission();
+}
+
+uint8_t readRegister(uint8_t address, uint8_t reg) {
+    Wire.beginTransmission(address);
+    Wire.write(reg);
+    Wire.endTransmission(false); // Restart condition
+    Wire.requestFrom(address, (uint8_t)1);
+    return Wire.read();
+}
+
+void ICM20602::readAccelAndGyroBatch() {
+    Wire.beginTransmission(ICM20602_ADDR);
+    Wire.write(ACCEL_XOUT_H); // 0x2D
+    Wire.endTransmission(false);
+    Wire.requestFrom(ICM20602_ADDR, (uint8_t)14); // 6 accel + 2 temp + 6 gyro = 14 bytes
+
+    uint8_t buf[14];
+    for (int i = 0; i < 14; i++) {
+        buf[i] = Wire.read();
+    }
+
+    // Parse accel
+    accelData[0] = (int16_t)((buf[0] << 8) | buf[1]);
+    accelData[1] = (int16_t)((buf[2] << 8) | buf[3]);
+    accelData[2] = (int16_t)((buf[4] << 8) | buf[5]);
+    // Parse temperature (optional)
+    tempRaw = (int16_t)((buf[6] << 8) | buf[7]);
+
+    // Parse gyro
+    gyroData[0] = (int16_t)((buf[8] << 8) | buf[9]);
+    gyroData[1] = (int16_t)((buf[10] << 8) | buf[11]);
+    gyroData[2] = (int16_t)((buf[12] << 8) | buf[13]);
+}
+
+
+void initICM20602() {
+    writeRegister(ICM20602_ADDR, PWR_MGMT_1, 0x00); // Wake up
+    delay(100);
+
+    // Set SMPLRT_DIV to 0 -> sample rate = internal rate / (1 + SMPLRT_DIV)
+    writeRegister(ICM20602_ADDR, SMPLRT_DIV, 0x00); // Max sample rate
+
+    // Enable DLPF for gyroscope (FCHOICE_B = 0), DLPF_CFG = 0 → ~250 Hz bandwidth
+    writeRegister(ICM20602_ADDR, CONFIG, 0x00); // DLPF_CFG = 0
+
+    // Enable DLPF for accelerometer (ACCEL_FCHOICE_B = 0), A_DLPF_CFG = 0 → ~218.1 Hz
+    writeRegister(ICM20602_ADDR, ACCEL_CONFIG2, 0x00); // A_DLPF_CFG = 0
+
+    // Set accel range to ±16g
+    uint8_t accelConfig = readRegister(ICM20602_ADDR, ACCEL_CONFIG);
+    accelConfig = (accelConfig & ~0x18) | 0x18;
+    writeRegister(ICM20602_ADDR, ACCEL_CONFIG, accelConfig);
+    accelScaleFactor = 2048.0;
+
+    // Set gyro range to ±2000 dps
+    uint8_t gyroConfig = readRegister(ICM20602_ADDR, GYRO_CONFIG);
+    gyroConfig = (gyroConfig & ~0x18) | 0x18;
+    writeRegister(ICM20602_ADDR, GYRO_CONFIG, gyroConfig);
+    gyroScaleFactor = 16.4;
+}
+
+
+void ICM20602::setup() {
+    Serial.println("Starting ICM20602 sensors");
+    Wire.begin();
+    Wire.setClock(400000);
+
+    initICM20602();
+
+    Wire.beginTransmission(0x69);
+    Wire.write(0x75);
+    Wire.endTransmission(false); // Restart condition
+    Wire.requestFrom(0x69, 1);
+    const uint8_t whoAmI = Wire.read();
+
+    if (whoAmI == 0x12) { // Expected device ID for ICM-20602
+        Serial.println("ICM-20602 detected!");
+    } else {
+        Serial.print("Unexpected device ID: ");
+        Serial.println(whoAmI, HEX);
+    }
+
+    m_temperatureK = 293;
+}
+
+void ICM20602::read() {
+    readAccelAndGyroBatch();
+
+    // Convert accelerometer data to g
+    const float accelX_g = accelData[0] / accelScaleFactor;
+    const float accelY_g = accelData[1] / accelScaleFactor;
+    const float accelZ_g = accelData[2] / accelScaleFactor;
+
+    // Convert gyroscope data to dps
+    const float gyroX_dps = gyroData[0] / gyroScaleFactor;
+    const float gyroY_dps = gyroData[1] / gyroScaleFactor;
+    const float gyroZ_dps = gyroData[2] / gyroScaleFactor;
+
+    // provided in milli g --> converting to m/s^2
+    m_accelerationsMSS = {
+            (accelX_g * 9.80665f),
+            (accelY_g * 9.80665f),
+            (accelZ_g * 9.80665f),
+        };
+
+    // provided in degrees per second --> converting to radians per second (* 0.017453)
+    m_velocitiesRadS = {
+            (gyroX_dps * (3.1415926535897932f / 180)),
+            (gyroY_dps * (3.1415926535897932f / 180)),
+            (gyroZ_dps * (3.1415926535897932f / 180)),
+        };
+}
